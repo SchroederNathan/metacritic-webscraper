@@ -32,7 +32,7 @@ interface Review {
 
 interface GameRatings {
   name: string;
-  platform: Platform | string;
+  platforms: string[];          // All platforms the game is available on
   slug: string;
   url: string;
   metascore?: number;            // 0–100
@@ -45,7 +45,7 @@ interface GameRatings {
 
 interface SearchResult {
   name: string;
-  platform?: string;
+  platforms: string[];  // All platforms the game is available on
   slug: string;    // the part after /game/<platform>/
   url: string;
   metascore?: number;  // Metascore from API
@@ -145,15 +145,20 @@ export async function searchGamesByName(query: string, opts: ScrapeOptions = {})
               .map((item: any) => {
                 // Extract slug from the item
                 const slug = item.slug || '';
-                // Get the first platform if available, or empty string
-                const platform = item.platforms && item.platforms.length > 0 
-                  ? normalizePlatform(item.platforms[0].name) || '' 
-                  : '';
                 
-                // Construct the main game URL (not the critic-reviews URL)
-                // Format: /game/{slug}/ or /game/{platform}/{slug}/
-                const gameUrl = platform 
-                  ? `https://www.metacritic.com/game/${platform}/${slug}/`
+                // Get all platforms and normalize them, removing duplicates
+                const platforms: string[] = item.platforms && Array.isArray(item.platforms)
+                  ? Array.from(new Set(
+                      item.platforms
+                        .map((p: any) => normalizePlatform(p.name))
+                        .filter((p: string | undefined): p is string => !!p)
+                    ))
+                  : [];
+                
+                // Use first platform for URL construction, or slug-only if no platforms
+                const firstPlatform = platforms.length > 0 ? platforms[0] : '';
+                const gameUrl = firstPlatform
+                  ? `https://www.metacritic.com/game/${firstPlatform}/${slug}/`
                   : `https://www.metacritic.com/game/${slug}/`;
                 
                 // Extract metascore from criticScoreSummary
@@ -161,7 +166,7 @@ export async function searchGamesByName(query: string, opts: ScrapeOptions = {})
                 
                 return {
                   name: item.title || item.name || '',
-                  platform: platform,
+                  platforms: platforms,
                   slug: slug,
                   url: gameUrl,
                   metascore: metascore,
@@ -341,9 +346,10 @@ export async function searchGamesByName(query: string, opts: ScrapeOptions = {})
     const cleanHref = href.split('?')[0] || href; // Remove query params
     const url = `https://www.metacritic.com${cleanHref.endsWith("/") ? cleanHref : cleanHref + "/"}`;
 
+    const normalizedPlatform = normalizePlatform(platformText) || platform;
     results.push({
       name: name || slug,
-      platform: normalizePlatform(platformText) || platform,
+      platforms: normalizedPlatform ? [normalizedPlatform] : [],
       slug,
       url,
     });
@@ -472,9 +478,10 @@ export async function scrapeGamePage(url: string, opts: ScrapeOptions = {}): Pro
   const platformSlug = m?.[1] ?? platform.toLowerCase();
   const gameSlug = m?.[2] ?? name.toLowerCase().replace(/\s+/g, "-");
 
+  const normalizedPlatform = normalizePlatform(platform) || platformSlug;
   const result: GameRatings = {
     name,
-    platform: normalizePlatform(platform) || platformSlug,
+    platforms: normalizedPlatform ? [normalizedPlatform] : [],
     slug: gameSlug,
     url,
     metascore: parseNumber(metascoreText),
@@ -504,7 +511,7 @@ export async function getGameRatingsAndReviewsByName(query: string, opts: Scrape
   // Convert SearchResult to GameRatings format
   const gameRating: GameRatings = {
     name: result.name,
-    platform: result.platform || '',
+    platforms: result.platforms || [],
     slug: result.slug,
     url: result.url,
     metascore: result.metascore,
